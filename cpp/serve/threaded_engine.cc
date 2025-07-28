@@ -7,6 +7,7 @@
 
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ffi/container/ndarray.h>
 #include <tvm/runtime/module.h>
 
 #include <atomic>
@@ -106,6 +107,10 @@ class ThreadedEngineImpl : public ThreadedEngine {
     }
   }
 
+  Array<Model> GetModels() final {
+    return background_engine_->GetModels();
+  }
+    
   void AddRequest(Request request) final {
     bool need_notify = false;
     {

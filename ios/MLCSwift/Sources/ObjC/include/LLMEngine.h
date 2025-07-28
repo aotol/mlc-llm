@@ -29,4 +29,10 @@
 
 - (void)exitBackgroundLoop;
 
+- (NSArray<NSNumber*>*)tokenize:(NSString*)text;
+
+- (void) loadTokenizer: (NSString *)engineConfigJson;
+
+- (NSArray<NSNumber *> *)embedFromTokenIds:(NSArray<NSNumber *> *)tokens withLib: (NSString *) modelLib;
+
 @end

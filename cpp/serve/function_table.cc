@@ -100,6 +100,7 @@ void FunctionTable::Init(String reload_lib_path, Device device, picojson::object
     };
     this->model_metadata_ = ModelMetadata::FromModule(
         this->disco_mod->DebugGetFromRemote(0).cast<Module>(), std::move(model_config));
+    this->model_metadata_.model_path_id = reload_lib_path;
     this->_InitFunctions();
   } else {
     ICHECK(!session.defined());
@@ -139,6 +140,7 @@ void FunctionTable::Init(String reload_lib_path, Device device, picojson::object
       return Function::GetGlobalRequired(name);
     };
     this->model_metadata_ = ModelMetadata::FromModule(this->local_vm, std::move(model_config));
+    this->model_metadata_.model_path_id = reload_lib_path;
     this->_InitFunctions();
   }
   ICHECK_EQ(this->model_metadata_.tensor_parallel_shards, num_shards);

@@ -68,7 +68,8 @@ def main():
     if not CONDA_BUILD:
         with open("MANIFEST.in", "w", encoding="utf-8") as fo:
             for path in LIB_LIST:
-                if os.path.isfile(path):
+                dst = os.path.join(CURRENT_DIR, "mlc_llm", os.path.basename(path))
+                if os.path.isfile(path) and os.path.abspath(path) != os.path.abspath(dst):
                     shutil.copy(path, os.path.join(CURRENT_DIR, "mlc_llm"))
                     _, libname = os.path.split(path)
                     fo.write(f"include mlc_llm/{libname}\n")
@@ -127,7 +128,8 @@ def main():
 
     if not CONDA_BUILD:
         # Wheel cleanup
-        os.remove("MANIFEST.in")
+        if os.path.isfile("MANIFEST.in"):
+            os.remove("MANIFEST.in")
         for path in LIB_LIST:
             _, libname = os.path.split(path)
             _remove_path(f"mlc_llm/{libname}")
