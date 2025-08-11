@@ -304,20 +304,21 @@ class JSONFFIEngineImpl : public JSONFFIEngine, public ModuleNode {
     return picojson::value(json_response_arr).serialize();
   }
     
-    NDArray Embed(IntTuple token_ids, const std::string& model_lib) {
-      Array<Model> models = this->engine_->GetModels();
-      if (!models.empty()) {
+NDArray Embed(IntTuple token_ids, const std::string& model_lib) {
+    std::cout << "model_lib: " << model_lib << "\n";
+    Array<Model> models = this->engine_->GetModels();
+    if (!models.empty()) {
         for (const Model& model : models) {
-          const std::string& path_id = model->GetMetadata().model_path_id;
-          if (path_id.size() >= model_lib.size() &&
-              path_id.compare(path_id.size() - model_lib.size(), model_lib.size(), model_lib) == 0) {
-            ObjectRef result = model->TokenEmbed(token_ids, nullptr, 0);
-            return Downcast<NDArray>(result);
-          }
+            const std::string& path_id = model->GetMetadata().model_path_id;
+            if (path_id.size() >= model_lib.size() && path_id.compare(path_id.size() - model_lib.size(), model_lib.size(), model_lib) == 0) {
+                std::cout << "path_id: " << path_id << "\n";
+                ObjectRef result = model->TokenEmbed(token_ids, nullptr, 0);
+                std::cout << "#### EMBED ####\n";
+                return Downcast<NDArray>(result);}
         }
-      }
-      return NDArray();  // Return empty if no match
     }
+    return NDArray();  // Return empty if no match
+}
 
 void PrintModelMetadata(const mlc::llm::ModelMetadata& meta) {
   using namespace mlc::llm;

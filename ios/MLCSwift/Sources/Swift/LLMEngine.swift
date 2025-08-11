@@ -234,14 +234,14 @@ public class MLCEngine {
         jsonFFIEngine.loadTokenizer(modelPath)
     }
             
-    public func tokenize(text: String) -> [Int64] {
+    public func tokenize(text: String) async -> [Int64] {
         guard let tokens = jsonFFIEngine.tokenize(text) else {
             return []
         }
         return tokens.map { $0.int64Value }
     }
     
-    public func embedFromTokenIds(modelLib: String, _ tokens: [Int64]) -> [Float] {
+    public func embedFromTokenIds(modelLib: String, _ tokens: [Int64]) async -> [Float] {
         let nsTokens = tokens.map { NSNumber(value: $0) }
         guard let embedding = jsonFFIEngine.embed(fromTokenIds: nsTokens, withLib: modelLib) else {
             return []
