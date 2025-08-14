@@ -305,19 +305,33 @@ class JSONFFIEngineImpl : public JSONFFIEngine, public ModuleNode {
   }
     
 NDArray Embed(IntTuple token_ids, const std::string& model_lib) {
-    std::cout << "model_lib: " << model_lib << "\n";
+  try {
+    std::cerr << "model_lib: " << model_lib << "\n";
     Array<Model> models = this->engine_->GetModels();
     if (!models.empty()) {
-        for (const Model& model : models) {
-            const std::string& path_id = model->GetMetadata().model_path_id;
-            if (path_id.size() >= model_lib.size() && path_id.compare(path_id.size() - model_lib.size(), model_lib.size(), model_lib) == 0) {
-                std::cout << "path_id: " << path_id << "\n";
-                ObjectRef result = model->TokenEmbed(token_ids, nullptr, 0);
-                std::cout << "#### EMBED ####\n";
-                return Downcast<NDArray>(result);}
+      for (const Model& model : models) {
+        const std::string& path_id = model->GetMetadata().model_path_id;
+        if (path_id.size() >= model_lib.size() &&
+            path_id.compare(path_id.size() - model_lib.size(), model_lib.size(), model_lib) == 0) {
+          std::cerr << "path_id: " << path_id << "\n";
+
+          //ObjectRef result = model->TokenEmbed(token_ids, nullptr, 0);
+          ObjectRef result = model->TokenEmbed({ IntTuple{ token_ids.begin(), token_ids.end() } });
+
+          std::cerr << "#### EMBED call returned ####\n";
+          NDArray emb = Downcast<NDArray>(result);  // will throw tvm::Error if wrong type
+          return emb;
         }
+      }
     }
-    return NDArray();  // Return empty if no match
+  } catch (const tvm::Error& e) {
+    std::cerr << "[TVMError] " << e.what() << std::endl;
+  } catch (const std::exception& e) {
+    std::cerr << "[std::exception] " << e.what() << std::endl;
+  } catch (...) {
+    std::cerr << "[unknown exception]\n";
+  }
+  return NDArray();  // empty on error/no match
 }
 
 void PrintModelMetadata(const mlc::llm::ModelMetadata& meta) {

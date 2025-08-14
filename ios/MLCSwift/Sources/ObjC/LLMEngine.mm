@@ -20,6 +20,7 @@
 #include <tvm/ffi/function.h>
 #include <tvm/runtime/module.h>
 #include <tvm/runtime/int_tuple.h>
+#include <tvm/runtime/ndarray.h>
 
 using namespace tvm::ffi;
 using namespace tvm::runtime;
@@ -134,58 +135,72 @@ using tvm::ffi::TypedFunction;
   return output;
 }
 
-- (NSArray<NSNumber *> *)embedFromTokenIds:(NSArray<NSNumber *> *)tokens withLib: (NSString *) modelLib {
+- (NSArray<NSNumber *> *)embedFromTokenIds:(NSArray<NSNumber *> *)tokens withLib:(NSString *)modelLib {
+  // Build the token list (keep IntTuple as in your current call path)
   std::vector<int64_t> token_vec;
+  token_vec.reserve(tokens.count);
   for (NSNumber *num in tokens) {
     token_vec.push_back(num.longLongValue);
   }
   IntTuple token_ids(token_vec);
+
   std::string modelLib_input = [modelLib UTF8String];
-  NDArray embedding = embed_func_(token_ids, modelLib_input).cast<NDArray>();
 
-  CHECK_EQ(embedding->dtype.code, kDLFloat);
-  //NSLog(@"Embedding dtype: code=%d bits=%d lanes=%d", embedding->dtype.code, embedding->dtype.bits, embedding->dtype.lanes);
+  // Call the exported embed function
+  tvm::runtime::NDArray embedding =
+      embed_func_(token_ids, modelLib_input).cast<tvm::runtime::NDArray>();
 
-  // Compute total length
-  int64_t len = 1;
-  for (int i = 0; i < embedding->ndim; ++i) {
-    len *= embedding->shape[i];
+  // *** IMPORTANT ***
+  // Copy to CPU before reading (the result can live on Metal device memory)
+  DLDevice cpu_dev{kDLCPU, 0};
+  tvm::runtime::NDArray cpu = embedding.CopyTo(cpu_dev);
+
+  const DLTensor* t = cpu.operator->();
+  CHECK_EQ(t->dtype.code, kDLFloat);
+
+  // Total number of scalars = product(shape) * lanes
+  int64_t len = (t->dtype.lanes > 0 ? t->dtype.lanes : 1);
+  for (int i = 0; i < t->ndim; ++i) {
+    len *= t->shape[i];
   }
 
   NSMutableArray<NSNumber *> *output = [NSMutableArray arrayWithCapacity:(NSUInteger)len];
 
-  if (embedding->dtype.bits == 32) {
-    const float* data = static_cast<const float*>(embedding->data);
+  // Start from base pointer + byte_offset
+  const uint8_t* base = reinterpret_cast<const uint8_t*>(t->data) + t->byte_offset;
+
+  if (t->dtype.bits == 32) {
+    const float* data = reinterpret_cast<const float*>(base);
     for (int64_t i = 0; i < len; ++i) {
       [output addObject:@(data[i])];
     }
-  } else if (embedding->dtype.bits == 16) {
-    const uint16_t* f16_data = static_cast<const uint16_t*>(embedding->data);
+  } else if (t->dtype.bits == 16) {
+    // Convert float16 -> float32 manually
+    const uint16_t* f16_data = reinterpret_cast<const uint16_t*>(base);
     for (int64_t i = 0; i < len; ++i) {
       uint16_t h = f16_data[i];
       uint16_t h_exp = (h & 0x7C00u) >> 10;
       uint16_t h_sig = (h & 0x03FFu);
-      uint32_t sign = ((uint32_t)h & 0x8000u) << 16;
+      uint32_t sign  = ((uint32_t)h & 0x8000u) << 16;
       uint32_t exp, sig;
 
       if (h_exp == 0) {
         if (h_sig == 0) {
-          exp = 0;
-          sig = 0;
+          exp = 0; sig = 0;
         } else {
-          h_exp = 1;
-          while ((h_sig & 0x0400u) == 0) {
-            h_sig <<= 1;
-            h_exp--;
-          }
+          // subnormal
+          int e = -1;
+          while ((h_sig & 0x0400u) == 0) { h_sig <<= 1; ++e; }
           h_sig &= 0x03FFu;
-          exp = (uint32_t)(127 - 15 - h_exp + 1);
-          sig = ((uint32_t)h_sig) << 13;
+          exp = (uint32_t)(127 - 15 - e);
+          sig = (uint32_t)h_sig << 13;
         }
       } else if (h_exp == 0x1F) {
+        // inf / NaN
         exp = 255;
         sig = (uint32_t)h_sig << 13;
       } else {
+        // normalized
         exp = (uint32_t)(h_exp - 15 + 127);
         sig = (uint32_t)h_sig << 13;
       }
@@ -196,11 +211,12 @@ using tvm::ffi::TypedFunction;
       [output addObject:@(result)];
     }
   } else {
-    LOG(FATAL) << "Unsupported embedding dtype bits: " << embedding->dtype.bits;
+    LOG(FATAL) << "Unsupported embedding dtype bits: " << t->dtype.bits;
   }
 
   return output;
 }
+
 
 - (void)abort:(NSString*)requestID {
   std::string request_id = requestID.UTF8String;

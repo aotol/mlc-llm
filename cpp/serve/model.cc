@@ -105,7 +105,7 @@ class ModelImpl : public ModelObj {
       NVTXScopedRange nvtx_scope("Copy to worker 0");
       token_ids_dref_or_nd = ft_.CopyToWorker0(token_ids_nd, "token_ids", {prefill_chunk_size_});
     }
-
+    CHECK(ft_.embed_func_.defined()) << "`embed` function is not found in the model. ";
     ObjectRef embeddings = ft_.embed_func_(token_ids_dref_or_nd, params_).cast<ObjectRef>();
     if (dst != nullptr) {
       CHECK(dst->defined());
