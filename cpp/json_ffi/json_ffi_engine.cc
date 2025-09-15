@@ -313,12 +313,12 @@ NDArray Embed(IntTuple token_ids, const std::string& model_lib) {
         const std::string& path_id = model->GetMetadata().model_path_id;
         if (path_id.size() >= model_lib.size() &&
             path_id.compare(path_id.size() - model_lib.size(), model_lib.size(), model_lib) == 0) {
-          std::cerr << "path_id: " << path_id << "\n";
+          //std::cerr << "path_id: " << path_id << "\n";
 
           //ObjectRef result = model->TokenEmbed(token_ids, nullptr, 0);
           ObjectRef result = model->TokenEmbed({ IntTuple{ token_ids.begin(), token_ids.end() } });
 
-          std::cerr << "#### EMBED call returned ####\n";
+          //std::cerr << "#### EMBED call returned ####\n";
           NDArray emb = Downcast<NDArray>(result);  // will throw tvm::Error if wrong type
           return emb;
         }
