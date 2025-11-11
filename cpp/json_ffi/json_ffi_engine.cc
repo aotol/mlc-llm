@@ -2,8 +2,11 @@
 
 #include <picojson.h>
 #include <tvm/ffi/function.h>
+#include <tvm/ffi/container/array.h>
+#include <tvm/ffi/string.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/module.h>
+#include <tvm/runtime/tensor.h>
 
 #include <filesystem>
 #include <fstream>
@@ -165,6 +168,7 @@ class JSONFFIEngineImpl : public JSONFFIEngine, public ffi::ModuleObj {
   TVM_MODULE_VTABLE_ENTRY("run_background_stream_back_loop",
                           &JSONFFIEngineImpl::RunBackgroundStreamBackLoop);
   TVM_MODULE_VTABLE_ENTRY("exit_background_loop", &JSONFFIEngineImpl::ExitBackgroundLoop);
+  TVM_MODULE_VTABLE_ENTRY("embed", &JSONFFIEngineImpl::Embed);
   TVM_MODULE_VTABLE_END();
 
   void InitBackgroundEngine(int device_type, int device_id,
@@ -294,6 +298,89 @@ class JSONFFIEngineImpl : public JSONFFIEngine, public ffi::ModuleObj {
     }
     return picojson::value(json_response_arr).serialize();
   }
+
+  Tensor Embed(IntTuple token_ids, const std::string& model_lib) {
+  try {
+    std::cerr << "model_lib: " << model_lib << "\n";
+    Array<Model> models = this->engine_->GetModels();
+    if (!models.empty()) {
+      for (const Model& model : models) {
+        const std::string& path_id = model->GetMetadata().model_path_id;
+        if (path_id.size() >= model_lib.size() &&
+            path_id.compare(path_id.size() - model_lib.size(), model_lib.size(), model_lib) == 0) {
+          std::cerr << "path_id: " << path_id << "\n";
+
+          //ObjectRef result = model->TokenEmbed(token_ids, nullptr, 0);
+          ObjectRef result = model->TokenEmbed({ IntTuple{ token_ids.begin(), token_ids.end() } });
+
+          std::cerr << "#### EMBED call returned ####\n";
+          Tensor emb = Downcast<Tensor>(result);  // will throw tvm::Error if wrong type
+          return emb;
+        }
+      }
+    }
+  } catch (const tvm::Error& e) {
+    std::cerr << "[TVMError] " << e.what() << std::endl;
+  } catch (const std::exception& e) {
+    std::cerr << "[std::exception] " << e.what() << std::endl;
+  } catch (...) {
+    std::cerr << "[unknown exception]\n";
+  }
+  return Tensor{nullptr};  // empty on error/no match
+}
+
+void PrintModelMetadata(const mlc::llm::ModelMetadata& meta) {
+  using namespace mlc::llm;
+
+  std::cout << "=== ModelMetadata ===\n";
+  std::cout << "model_type: " << meta.model_type << "\n";
+  std::cout << "model_path_id: " << meta.model_path_id << "\n";
+  std::cout << "quantization: " << meta.quantization << "\n";
+  std::cout << "context_window_size: " << meta.context_window_size << "\n";
+  std::cout << "prefill_chunk_size: " << meta.prefill_chunk_size << "\n";
+  std::cout << "max_batch_size: " << meta.max_batch_size << "\n";
+  std::cout << "sliding_window_size: " << meta.sliding_window_size << "\n";
+  std::cout << "tensor_parallel_shards: " << meta.tensor_parallel_shards << "\n";
+  std::cout << "pipeline_parallel_stages: " << meta.pipeline_parallel_stages << "\n";
+  std::cout << "disaggregation: " << (meta.disaggregation ? "true" : "false") << "\n";
+  std::cout << "attention_sink_size: " << meta.attention_sink_size << "\n";
+  std::cout << "seqlen_padding_factor: " << meta.seqlen_padding_factor << "\n";
+  std::cout << "kv_state_kind: " << KVStateKindToString(meta.kv_state_kind) << "\n";
+
+  std::cout << "kv_cache_metadata:\n";
+  std::cout << "  num_hidden_layers: " << meta.kv_cache_metadata.num_hidden_layers << "\n";
+  std::cout << "  num_attention_heads: " << meta.kv_cache_metadata.num_attention_heads << "\n";
+  std::cout << "  num_key_value_heads: " << meta.kv_cache_metadata.num_key_value_heads << "\n";
+  std::cout << "  head_dim: " << meta.kv_cache_metadata.head_dim << "\n";
+
+  std::cout << "memory_usage:\n";
+  for (const auto& kv : meta.memory_usage) {
+    std::cout << "  " << kv.first << ": " << kv.second << "\n";
+  }
+
+  std::cout << "params:\n";
+  for (const auto& p : meta.params) {
+    std::cout << "  name: " << p.name << ", dtype: " << p.dtype << ", shape: [";
+    for (size_t i = 0; i < p.shape.size(); ++i) {
+      std::cout << p.shape[i];
+      if (i + 1 < p.shape.size()) std::cout << ", ";
+    }
+    std::cout << "]\n";
+    for (const auto& pre : p.preprocs) {
+      std::cout << "    preproc: " << pre.func_name << ", in_shape: [";
+      for (size_t i = 0; i < pre.in_shape.size(); ++i) {
+        std::cout << pre.in_shape[i];
+        if (i + 1 < pre.in_shape.size()) std::cout << ", ";
+      }
+      std::cout << "], out_shape: [";
+      for (size_t i = 0; i < pre.out_shape.size(); ++i) {
+        std::cout << pre.out_shape[i];
+        if (i + 1 < pre.out_shape.size()) std::cout << ", ";
+      }
+      std::cout << "], out_dtype: " << pre.out_dtype << "\n";
+    }
+  }
+}
 };
 
 TVM_FFI_STATIC_INIT_BLOCK() {

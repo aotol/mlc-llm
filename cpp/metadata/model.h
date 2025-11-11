@@ -79,6 +79,7 @@ struct ModelMetadata {
   };
 
   std::string model_type;
+  std::string model_path_id;
   std::string quantization;
   int64_t context_window_size;
   int64_t prefill_chunk_size;

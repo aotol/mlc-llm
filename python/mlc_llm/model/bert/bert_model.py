@@ -105,7 +105,7 @@ class BertSelfAttention(nn.Module):  # pylint: disable=too-many-instance-attribu
         qkv = op.reshape(qkv, (b, s, 3 * h, d))
         q, k, v = op.split(qkv, 3, axis=2)
 
-        # Attention
+        # Fused attention expects an additive mask: 0.0 for allowed, -inf for masked.
         output = op_ext.attention(q, k, v, attention_mask)
         return output
 
@@ -233,8 +233,38 @@ class BertModel(nn.Module):
         encoder_output = self.encoder(embeddings, attention_mask)
         return encoder_output
 
-    def prefill(self, inputs: Tensor, attention_mask: Tensor):
+    def encode(self, input_ids: Tensor, attention_mask: Optional[Tensor] = None):
+        # If no attention_mask given, assume all tokens are valid.
+        if attention_mask is None:
+            attention_mask = op.ones(input_ids.shape, dtype="int32")
+
+        # Build additive attention mask: 0.0 for allowed, -inf for masked.
         def _attention_mask(mask: te.Tensor, zero, batch_size, seq_len):
+            neg_inf = tir.min_value(self.dtype)
+            zero_f = tir.const(0, self.dtype)
+            return te.compute(
+                (batch_size, 1, seq_len, seq_len),
+                lambda b, _, i, j: tir.if_then_else(
+                    tir.any(mask[b, i] == zero, mask[b, j] == zero),
+                    tir.min_value(self.dtype),
+                    tir.max_value(self.dtype),
+                ),
+                name="attention_mask_encode",
+            )
+
+        batch_size, seq_len = input_ids.shape
+        attention_mask_2d = op.tensor_expr_op(
+            _attention_mask,
+            name_hint="attention_mask_encode",
+            args=[attention_mask, tir.IntImm("int32", 0), batch_size, seq_len],
+        )
+        return self.forward(input_ids, attention_mask_2d)
+
+    def prefill(self, inputs: Tensor, attention_mask: Tensor):
+        # Build additive attention mask: 0.0 for allowed, -inf for masked.
+        def _attention_mask(mask: te.Tensor, zero, batch_size, seq_len):
+            neg_inf = tir.min_value(self.dtype)
+            zero_f = tir.const(0, self.dtype)
             return te.compute(
                 (batch_size, 1, seq_len, seq_len),
                 lambda b, _, i, j: tir.if_then_else(
@@ -253,8 +283,62 @@ class BertModel(nn.Module):
         )
         return self.forward(inputs, attention_mask_2d)
 
+    def embed(self, input_ids: Tensor):
+        # input_ids: (seq_len,) int32
+        # Build a batch of size 1
+        seq_len = input_ids.shape[0]
+        input_ids = op.reshape(input_ids, (1, seq_len))
+        # attention mask = ones (all tokens valid)
+        attention_mask = op.ones((1, seq_len), dtype="int32")
+
+        # positions 0..seq_len-1
+        def _input_positions(inputs: te.Tensor):
+            b, s = inputs.shape
+            return te.compute((b, s), lambda _, j: j.astype("int32"), name="input_positions_embed")
+
+        input_positions = op.tensor_expr_op(
+            _input_positions, name_hint="input_positions_embed", args=[input_ids]
+        )
+        token_type_ids = op.zeros((1, seq_len), dtype="int32")
+
+        # embeddings + encoder
+        embeddings = self.embeddings(input_ids, token_type_ids, input_positions)
+
+        # Build additive attention mask: 0.0 for allowed, -inf for masked.
+        def _attn(mask: te.Tensor, zero, batch_size, s):
+            neg_inf = tir.min_value(self.dtype)
+            zero_f = tir.const(0, self.dtype)
+            return te.compute(
+                (batch_size, 1, s, s),
+                lambda b, _, i, j: tir.if_then_else(
+                    tir.any(mask[b, i] == zero, mask[b, j] == zero),
+                    neg_inf,
+                    zero_f,
+                ),
+                name="attention_mask_embed",
+            )
+
+        attention_mask_2d = op.tensor_expr_op(
+            _attn,
+            name_hint="attention_mask_embed",
+            args=[attention_mask, tir.IntImm("int32", 0), 1, seq_len],
+        )
+        enc = self.encoder(embeddings, attention_mask_2d)  # shape (1, seq_len, hidden)
+
+        # reshape to (seq_len, hidden) to match serve/model copy path
+        b, s, h = enc.shape
+        out = op.reshape(enc, (s, h))
+        return out
+
     def get_default_spec(self):
         mod_spec = {
+            "embed": {
+                "input_ids": nn.spec.Tensor(["seq_len"], "int32"),
+                "$": {
+                    "param_mode": "packed",
+                    "effect_mode": "none",
+                },
+            },
             "prefill": {
                 "inputs": nn.spec.Tensor(["batch_size", "seq_len"], "int32"),
                 "attention_mask": nn.spec.Tensor(["batch_size", "seq_len"], "int32"),
