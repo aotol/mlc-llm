@@ -98,7 +98,7 @@ def _apply_preproc_to_params_and_check_pipeline(
 def _infer_kv_state_kind(model_type) -> str:
     if "rwkv" in model_type:
         return "rnn_state"
-    if "medusa" in model_type:
+    if "medusa" in model_type or "bert" in model_type:
         return "none"
     return "kv_cache"
 

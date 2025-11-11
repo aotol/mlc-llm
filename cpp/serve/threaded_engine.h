@@ -83,6 +83,8 @@ class ThreadedEngine {
 
   /*! \brief Call the given global function on all workers. Only for debug purpose. */
   virtual void DebugCallFuncOnAllAllWorker(const String& func_name, Optional<String> func_args) = 0;
+
+  virtual Array<Model> GetModels() = 0;
 };
 
 }  // namespace serve

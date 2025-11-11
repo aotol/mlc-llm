@@ -186,6 +186,8 @@ class MockEchoEngineImpl : public Engine {
 
   void Reset() final {}
 
+  Array<Model> GetModels() final {return {};}
+
   bool Empty() final { return request_map_.empty(); }
 
   void SetRequestStreamCallback(FRequestStreamCallback request_stream_callback) final {
@@ -399,6 +401,8 @@ class EngineImpl : public Engine {
     n->models_.clear();
     for (int i = 0; i < num_model; ++i) {
       const auto& [model_str, model_lib] = models_and_model_libs[i];
+      
+      //Create models here
       Model model = Model::Create(model_lib, model_str, model_configs[i], device, session,
                                   num_shards, model_num_pipeline_stages[i],
                                   /*trace_enabled=*/trace_recorder.defined());
@@ -507,6 +511,10 @@ class EngineImpl : public Engine {
     for (Model model : models_) {
       model->Reset();
     }
+  }
+
+  Array<Model> GetModels() final {
+    return models_;
   }
 
   bool Empty() final { return estate_->running_queue.empty() && estate_->waiting_queue.empty(); }

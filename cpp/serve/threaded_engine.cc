@@ -106,6 +106,10 @@ class ThreadedEngineImpl : public ThreadedEngine {
     }
   }
 
+  Array<Model> GetModels() final {
+    return background_engine_->GetModels();
+  }
+  
   void AddRequest(Request request) final {
     bool need_notify = false;
     {

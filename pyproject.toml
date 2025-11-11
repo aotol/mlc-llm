@@ -38,7 +38,10 @@ dependencies = [
     "apache-tvm-ffi",
     "datasets",
     "fastapi",
+<<<<<<< HEAD
     "flashinfer-python; sys_platform == 'linux'",
+=======
+>>>>>>> 15348a89 (enable embedding feature for MLCSwift.)
     "ml_dtypes>=0.5.1",
     "openai",
     "pandas",
